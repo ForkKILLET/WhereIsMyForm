@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         WhereIsMyForm
 // @namespace    https://github.com/ForkFG
-// @version      0.1
+// @version      0.2
 // @description  管理你的表单，不让他们走丢。适用场景：问卷，发帖，……
 // @author       ForkKILLET
 // @match        *://*/*
@@ -229,7 +229,7 @@ const UI = {
         <span class="WIMF-button" name="rset 清存">🗑️</span>
         <span class="WIMF-button" name="conf 设置">⚙️</span>
         <span class="WIMF-button" name="info 关于">ℹ️</span>
-        <span class="WIMF-button" name="hide 隐藏">❌</span>
+        <span class="WIMF-button" name="quit 退出">❌</span>
     </div>
     <div class="WIMF-text"></div>
 </div>
@@ -241,6 +241,7 @@ const UI = {
     text(h) {
         let $t = $(".WIMF-text")
         $t.show().html(h)
+        $(".WIMF-button[name^=quit]").attr("name", "back 返回")
     },
 
     mark() {
@@ -289,9 +290,13 @@ const UI = {
 <p>可用的测试页面：</p> <a href="https://www.wjx.cn/newsurveys.aspx">https://www.wjx.cn/newsurveys.aspx</a>
 `)
     },
-    hide() {
+    quit() {
         $(".WIMF-main").hide()
     },
+    back() {
+        $(".WIMF-text").hide()
+        $(".WIMF-button[name^=back]").attr("name", "quit 退出")
+    }
 }
 
 $(function () {
