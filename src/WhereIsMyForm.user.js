@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         WhereIsMyForm
 // @namespace    https://github.com/ForkFG
-// @version      0.3
+// @version      0.3.1
 // @description  管理你的表单，不让他们走丢。适用场景：问卷，发帖，……
 // @author       ForkKILLET
 // @match        *://*/*
@@ -110,8 +110,9 @@ $.fn.extend({
         return null
     },
     melt(type, time, rm) {
+        const hide = this.css("display") === "none"
         if (type === "fadeio")
-            type = this.css("display") === "none" ? "fadein" : "fadeout"
+            type = hide ? "fadein" : "fadeout"
         if (type === "fadein") this.show()
         this.css("animation", `melting-${type} ${time}s`)
         time *= 1000
@@ -119,6 +120,7 @@ $.fn.extend({
             if (type !== "fadein") rm ? this.remove() : this.hide()
         }, time > 100 ? time - 100 : time * 0.9)
         // Note: A bit shorter than the animation duration for avoid "flash back".
+        return c => c(! hide, this)
     }
 })
 
@@ -212,7 +214,9 @@ function shortcut() {
 
     for (let i in sc) sc[i] = sc[i].split("&").map(i => i === "" ? sc.leader[0] : i)
     const c_k = {
-        toggle: () => $(".WIMF").melt("fadeio", 1.5),
+        toggle: () => {
+            $(".WIMF").melt("fadeio", 1.5)(hide => ts.quit = hide)
+        },
         mark: UI.action.mark,
         fill: UI.action.fill,
         rset: UI.action.rset,
@@ -563,6 +567,7 @@ UI.action = {
     },
     quit() {
         $(".WIMF").melt("fadeout", 1.5, true)
+        ts.quit = true
     },
     back() {
         $(".WIMF-text").hide()
@@ -589,9 +594,10 @@ UI.move = (t, r) => {
 UI.init = () => {
     GM_addStyle(UI.M.styl)
     $("body").after(UI.M.html)
-    UI.move()
 
-    const $m = $(".WIMF-main"), $w = $(unsafeWindow)
+    const $r = $(".WIMF"), $m = $(".WIMF-main"), $w = $(unsafeWindow)
+    if (ts.quit) $r.hide()
+    UI.move()
 
     $(".WIMF-button").on("click", function() {
          UI.action[$(this).attr("name").split(" ")[0]]()
@@ -627,6 +633,7 @@ $(function init() {
         op: []
     })
     ts({
+        quit: false,
         top: 0,
         right: 0,
         sc: {
