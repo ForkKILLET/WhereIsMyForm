@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         WhereIsMyForm
 // @namespace    https://github.com/ForkFG
-// @version      0.3.1
+// @version      0.3.2
 // @description  管理你的表单，不让他们走丢。适用场景：问卷，发帖，……
 // @author       ForkKILLET
 // @match        *://*/*
@@ -10,9 +10,14 @@
 // @grant        GM_addStyle
 // @grant        GM_getValue
 // @grant        GM_setValue
-// @grant        GM_listValues
 // @require      https://code.jquery.com/jquery-1.11.0.min.js
 // ==/UserScript==
+
+const $ = this.$ // Debug: Hack eslint warnings in TM editor.
+const debug = true
+function expose(o) {
+    if (debug) for (let i in o) unsafeWindow[i] = o[i]
+}
 
 function Throw(msg, detail) {
     msg = `[WIMF] ${msg}`
@@ -21,64 +26,102 @@ function Throw(msg, detail) {
         : console.error(msg)
 }
 
+// Note: `dat.xxx.yyy = zzz` doesn't work. Now have to use `dat._.xxx_yyy = zzz`.
 function Dat({ getter, setter, useWrapper, getW, setW, dataW }) {
-    function dat(opt, src = dat, path) {
-        for (let n in opt) {
-            const p = path ? path + "." + n : n
-            Object.defineProperty(src, n, useWrapper
-                ? {
-                    get: () => dat._[p],
-                    set: v => dat._[p] = v
+    const pn = (p, n) => p ? p + "_" + n : n
+    function dat(opt, src = dat, p) {
+        const R = src === dat, r = new Proxy(src, useWrapper
+            ? {
+                get: (__, k) => {
+                    if (k === "_" && R) return _
+                    return _[pn(p, k)]
+                },
+                set: (__, k, v) => {
+                    if (k === "_" && R) Throw("[Dat] Set _.")
+                    _[pn(p, k)] = v
                 }
-                : {
-                    get: () => getter(p, n),
-                    set: v => setter(p, n, v)
-                }
-            )
-            if (typeof opt[n] === "object" && ! Array.isArray(opt[n])) {
-                if (src[n] == null) src[n] = {}
-                dat(opt[n], dat[n], p)
             }
-            else if (src[n] == null) src[n] = opt[n]
+            : {
+                get: (_, k) => getter(pn(p, k), k),
+                set: (_, k, v) => setter(pn(p, k), k, v)
+            }
+        )
+        for (let n in opt) {
+            if (typeof opt[n] === "object" && ! Array.isArray(opt[n])) {
+                if (r[n] === undefined) r[n] = {}
+                src[n] = dat(opt[n], src[n], pn(p, n))
+            }
+            else if (r[n] === undefined) r[n] = opt[n]
         }
+        return r
     }
 
     function parse(path, src = dat) {
-        const keys = path.split("."), len = keys.length
+        const keys = path.split("_"), len = keys.length
         function _parse(idx, now) {
             let k = keys[idx]
             if (len - idx <= 1) return [ now, k ]
+            if (now == null) Throw("[Dat]: Saw undefined when _.")
             return _parse(idx + 1, now[k])
         }
         return _parse(0, src)
     }
 
-    dat._ = new Proxy(dat, {
-        get: (_, path) => {
-            const r = parse(path, getW())
+    const _ = useWrapper ? new Proxy({}, {
+        get: (_, p) => {
+            const r = parse(p, getW())
             return r[0][r[1]]
         },
-        set: (_, path, val) => {
-            const d = getW(), r = parse(path, d)
-            r[0][r[1]] = val
+        set: (_, p, v) => {
+            const d = getW(), r = parse(p, d)
+            r[0][r[1]] = v
             setW(dataW ? dataW(d) : d)
         }
-    })
+    }) : null
 
     return dat
 }
 
+const ts = Dat({
+    useWrapper: true,
+    getW: () => GM_getValue("app") ?? {},
+    setW: v => GM_setValue("app", v)
+})({
+    window: {
+        state: "open",
+        top: 0,
+        right: 0,
+    },
+    key: {
+        leader: "Alt-w",
+        shortcut: {
+            toggle: "&q",
+            mark: "&m",
+            fill: "&f",
+            rset: "&r",
+            conf: "&c",
+            info: "&i"
+        }
+    },
+    operation: {}
+})._
 const ls = Dat({
     useWrapper: true,
     getW: () => JSON.parse(unsafeWindow.localStorage.getItem("WIMF") ?? "{}"),
     setW: v => unsafeWindow.localStorage.setItem("WIMF", v),
     dataW: v => JSON.stringify(v)
-})
-const ts = Dat({
-    useWrapper: true,
-    getW: () => GM_getValue("app") ?? {},
-    setW: v => GM_setValue("app", v)
-})
+})({})._
+const op = Dat({
+    getter: (_, n) => {
+        if (n === "here") n = location.origin + location.pathname
+        return ts.operation[n] ?? []
+    },
+    setter: (_, n, v) => {
+        if (n === "here") n = location.origin + location.pathname
+        const o = ts.operation
+        o[n] = v; ts.operation = o
+    }
+})({})
 
 $.fn.extend({
     path() {
@@ -88,12 +131,12 @@ $.fn.extend({
             if (! e) return p
             const $e = $(e), t = e.tagName.toLowerCase()
             let pn = t
-            if (e.id) pn += `#${e.id}`
-            if (e.name) pn += `[name=${e.name}]`
-            if (! e.id && $e.parent().children(t).length > 1) pn += `:nth-of-type(${
-                $e.prevAll(t).length + 1
-            })`
-            return _path(e.parentElement, pn + (f ? "" : `>${p}`), false)
+            if (e.id) pn += "#" + e.id
+            if (e.name) pn += "[name=" + e.name + "]"
+            if (! e.id && $e.parent().children(t).length > 1) {
+                pn += ":nth-of-type(" + ($e.prevAll(t).length + 1) + ")"
+            }
+           return _path(e.parentElement, pn + (f ? "" : ">" + p), false)
         })(this[0])
     },
     one(event, func) {
@@ -109,25 +152,25 @@ $.fn.extend({
         }
         return null
     },
-    melt(type, time, rm) {
-        const hide = this.css("display") === "none"
-        if (type === "fadeio")
-            type = hide ? "fadein" : "fadeout"
-        if (type === "fadein") this.show()
+    melt(type, time, a, b) {
+        const v = this.css("display") === "none"
+        if (type === "fadeio") type = v ? "fadein" : "fadeout"
+        if (b == null) b = type === "fadein" ? "show" : ""
+        if (a == null) a = type === "fadein" ? "" : "hide"
+        this[b]()
         this.css("animation", `melting-${type} ${time}s`)
         time *= 1000
-        setTimeout(() => {
-            if (type !== "fadein") rm ? this.remove() : this.hide()
-        }, time > 100 ? time - 100 : time * 0.9)
+        setTimeout(() => this[a](), time > 100 ? time - 100 : time * 0.9)
         // Note: A bit shorter than the animation duration for avoid "flash back".
-        return c => c(! hide, this)
-    }
+        return v
+    },
+    ""() {}
 })
 
 function scan({ hl, root } = {
     root: "body"
 }) {
-    const op = ls.op
+    const o = op.here, u = () => { op.here = o }
 
     const $t = $(`${root} input[type=text],textarea`),
           $r = $(`${root} input[type=radio],label`),
@@ -136,14 +179,14 @@ function scan({ hl, root } = {
 
     $t.one("change.WIMF", function() {
         const $_ = $(this), path = $_.path(), val = $_.val()
-        let f = true; for (let i in op) {
-            if (op[i].type === "text" && op[i].path === path){
-                op[i].val = val
+        let f = true; for (let i in o) {
+            if (o[i].type === "text" && o[i].path === path) {
+                o[i].val = val
                 f = false; break
             }
         }
-        if (f) op.push({ path, val, type: "text" })
-        ls.op = op
+        if (f) o.push({ path, val, type: "text" })
+        u()
     })
     $r.one("click.WIMF", function() {
         let $_ = $(this)
@@ -155,20 +198,20 @@ function scan({ hl, root } = {
         }
         if (! $_.is("[type=radio]")) return
 
-        let f = true; for (let i in op) {
-            if (op[i].type === "radio") {
-                if (op[i].path === path){
+        let f = true; for (let i in o) {
+            if (o[i].type === "radio") {
+                if (o[i].path === path){
                     f = false; break
                 }
                 // Note: Replace the old choice.
-                if ($(op[i].path).attr("name") === $_.attr("name")) {
-                    op[i].path = path
+                if ($(o[i].path).attr("name") === $_.attr("name")) {
+                    o[i].path = path
                     f = false; break
                 }
             }
         }
-        if (f) op.push({ path, label, type: "radio" })
-        ls.op = op
+        if (f) o.push({ path, label, type: "radio" })
+        u()
     })
     $c.one("click.WIMF", function() {
         let $_ = $(this)
@@ -180,12 +223,13 @@ function scan({ hl, root } = {
         }
         if (! $_.is("[type=checkbox]")) return
 
-        let f = true; for (let i in op)
-            if (op[i].type === "checkbox" && op[i].path === path){
+        let f = true; for (let i in o) {
+            if (o[i].type === "checkbox" && o[i].path === path){
                 f = false; break
             }
-        if (f) op.push({ path, label, type: "checkbox" })
-        ls.op = op
+        }
+        if (f) o.push({ path, label, type: "checkbox" })
+        u()
     })
 
     if (typeof hl === "function") for (let $i of $A) hl($i)
@@ -196,14 +240,15 @@ function shortcut() {
     const pk = []
     pk.last = () => pk[pk.length - 1]
 
-    const $w = $(unsafeWindow), sc = ts.sc,
+    const $w = $(unsafeWindow), $r = $(".WIMF"),
+          sc = ts.key_shortcut, lk = ts.key_leader,
           sc_rm = () => {
               for (let i in sc) sc[i].m = 0
           },
           ct = () => {
               clearTimeout(t_pk)
               pk.splice(0)
-              pk.sdk =  false
+              pk.sdk = false
               t_pk = null
               sc_rm()
           },
@@ -212,10 +257,10 @@ function shortcut() {
               t_pk = setTimeout(ct, 800)
           }
 
-    for (let i in sc) sc[i] = sc[i].split("&").map(i => i === "" ? sc.leader[0] : i)
+    for (let i in sc) sc[i] = sc[i].split("&").map(i => i === "" ? lk : i)
     const c_k = {
-        toggle: () => {
-            $(".WIMF").melt("fadeio", 1.5)(hide => ts.quit = hide)
+        toggle() {
+            ts.window_state = $(".WIMF").melt("fadeio", 1.5) ? "open" : "close"
         },
         mark: UI.action.mark,
         fill: UI.action.fill,
@@ -277,7 +322,8 @@ UI.meta = {
         <b class="WIMF-title">WhereIsMyForm</b>
         #{mainButton | mark 标记 | 🔍}
         #{mainButton | fill 填充 | 📃}
-        #{mainButton | rset 清存 | 🗑️}
+   <!-- #{mainButton | rset 清存 | 🗑️} -->
+        #{mainButton | list 清单 | 📚}
         #{mainButton | conf 设置 | ⚙️}
         #{mainButton | info 关于 | ℹ️}
         #{mainButton | quit 退出 | ❌}
@@ -300,7 +346,7 @@ UI.meta = {
 <a href="#{testURL}">#{testURL}</a>
 `,
     confInput: (zone, name, hint) => `
-${name[0].toUpperCase() + name.slice(1)} ${hint}
+${name.replace(/^[a-z]+_/, "").replace(/^./, c => c.toUpperCase())} ${hint}
 <input type="text" name="${zone}_${name}"/>
 `,
     confApply: (zone) => `<button data-zone="${zone}">OK</button>`,
@@ -308,15 +354,15 @@ ${name[0].toUpperCase() + name.slice(1)} ${hint}
 <b class="WIMF-title">Configuration</b> <br/>
 
 <p>
-    <b>Shortcuts 快捷键</b> <br/>
-    #{confInput | sc | leader | 引导}
-    #{confInput | sc | toggle | 开关浮窗}
-    #{confInput | sc | mark | 标记}
-    #{confInput | sc | fill | 填充}
-    #{confInput | sc | rset | 清存}
-    #{confInput | sc | conf | 设置}
-    #{confInput | sc | info | 关于}
-    #{confApply | sc}
+    <b>Key 按键</b> <br/>
+    #{confInput | key | leader          | 引导}
+    #{confInput | key | shortcut_toggle | 开关浮窗}
+    #{confInput | key | shortcut_mark   | 标记}
+    #{confInput | key | shortcut_fill   | 填充}
+    #{confInput | key | shortcut_rset   | 清存}
+    #{confInput | key | shortcut_conf   | 设置}
+    #{confInput | key | shortcut_info   | 关于}
+    #{confApply | key}
 </p>
 `,
     styl: `
@@ -345,9 +391,12 @@ ${name[0].toUpperCase() + name.slice(1)} ${hint}
     opacity: 1;
     transition: top 1s, right 1s;
     transform: scale(.9);
+
 }
-.WIMF, .WIMF * {
+.WIMF, .WIMF * { /* Note: Disable styles from host page. */
     box-sizing: content-box;
+    word-wrap: normal;
+    font-size: inherit;
 }
 
 .WIMF-main, .WIMF-text, .WIMF-task p {
@@ -511,9 +560,9 @@ UI.action = {
         $b.toggleClass("active")
     },
     fill() {
-        let c = 0; for (let o of ls.op) {
+        let c = 0; for (let o of op.here) {
             const $i = $(o.path)
-            if (! $i.length) Throw("Form path not found")
+            if (! $i.length) Throw("Form path not found", { path: o.path })
             switch (o.type) {
                 case "text":
                     $i.val(o.val)
@@ -532,9 +581,8 @@ UI.action = {
         }
         UI.task(`已填充 ${c} 个表单项。`, `${c} form field(s) is filled.`)
     },
-    rset() {
-        ls.op = []
-        UI.task("保存的表单已清除。", "Saved form is reset.")
+    list() {
+
     },
     conf() {
         UI.text.show("conf")
@@ -545,18 +593,18 @@ UI.action = {
                   zone = $b.data("zone"),
                   $t = $b.prevAll(`input[type=text][name^=${zone}_]`),
                   c_b = {
-                      sc: shortcut
+                      key: shortcut
                   }
 
             function map(it) {
                 for (let j = $t.length - 1; j >= 0; j--) {
-                    const $e = $($t[j]), sp = $e.attr("name").replace("_", ".")
+                    const $e = $($t[j]), sp = $e.attr("name")
                     it($e, sp)
                 }
             }
-            map(($_, sp) => $_.val(ts._[sp]))
+            map(($_, sp) => $_.val(ts[sp]))
             $b.on("click", () => {
-                map(($_, sp) => ts._[sp] = $_.val())
+                map(($_, sp) => { ts[sp] = $_.val() })
                 if (c_b[zone]) c_b[zone]()
                 UI.task(`设置块 ${zone} 已应用。`, `Configuration zone ${zone} is applied.`)
             })
@@ -566,37 +614,41 @@ UI.action = {
         UI.text.show("info")
     },
     quit() {
-        $(".WIMF").melt("fadeout", 1.5, true)
-        ts.quit = true
+        $(".WIMF").melt("fadeout", 1.5)
+        ts.window_state = "close"
     },
     back() {
         $(".WIMF-text").hide()
         UI.$btn("back").attr("name", "quit 退出")
-        UI.hideText()
+        UI.text.hide()
     }
 }
 UI.text = {
-    hide: () => UI.$btn(UI.textActive).removeClass("active"),
-        show: (n) => {
+    hide: () => {
+        UI.$btn(UI.text.active).removeClass("active")
+        $(".WIMF-text").hide().children(`[data-name=${UI.text.active}]`).hide()
+    },
+    show: (n) => {
         UI.text.hide()
-        $(".WIMF-text").show().html(UI.M[n])
-        UI.$btn(n).addClass("active")
-        UI.textActive = n
+        UI.$btn(UI.text.active = n).addClass("active")
+        const $t = $(".WIMF-text").show(), $p = $t.children(`[data-name=${n}]`)
+        if ($p.length) $p.show()
+        else $t.append(`<div data-name="${n}">${UI.M[n]}</div>`)
         UI.$btn("quit").attr("name", "back 返回")
     }
 }
-UI.task = (m) => $(`<p>${m}</p>`).prependTo($(".WIMF-task")).melt("sudden", 3, true)
+UI.task = (m) => $(`<p>${m}</p>`).prependTo($(".WIMF-task")).melt("sudden", 3, "remove")
 UI.move = (t, r) => {
-    if (t != null) ts.top = Math.max(t, 0)
-    if (r != null) ts.right = Math.max(r, 0)
-    $(".WIMF").css("top", ts.top + "px").css("right", ts.right + "px")
+    if (t != null) ts.window_top = Math.max(t, 0)
+    if (r != null) ts.window_right = Math.max(r, 0)
+    $(".WIMF").css("top", ts.window_top + "px").css("right", ts.window_right + "px")
 }
 UI.init = () => {
     GM_addStyle(UI.M.styl)
     $("body").after(UI.M.html)
 
     const $r = $(".WIMF"), $m = $(".WIMF-main"), $w = $(unsafeWindow)
-    if (ts.quit) $r.hide()
+    if (ts.window_state === "close") $r.hide()
     UI.move()
 
     $(".WIMF-button").on("click", function() {
@@ -620,7 +672,7 @@ UI.init = () => {
             if (c && f) {
                 const { clientX: x1, clientY: y1 } = f,
                       dx = x1 - x0, dy = y1 - y0
-                UI.move(ts.top + dy, ts.right - dx)
+                UI.move(ts.window_top + dy, ts.window_right - dx)
             }
             if (c) $m.removeClass("dragging").off("mousemove")
             $w.off("mouseup")
@@ -629,26 +681,10 @@ UI.init = () => {
 }
 
 $(function init() {
-    ls({
-        op: []
-    })
-    ts({
-        quit: false,
-        top: 0,
-        right: 0,
-        sc: {
-            leader: "Alt-w",
-            toggle: "&q",
-            mark: "&m",
-            fill: "&f",
-            rset: "&r",
-            conf: "&c",
-            info: "&i"
-        }
-    })
-
     UI.init()
     scan()
     shortcut()
 })
+
+expose({ ts, op, UI })
 
