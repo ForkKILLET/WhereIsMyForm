@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         WhereIsMyForm
 // @namespace    https://github.com/ForkFG
-// @version      0.3.2
+// @version      0.4
 // @description  管理你的表单，不让他们走丢。适用场景：问卷，发帖，……
 // @author       ForkKILLET
 // @match        *://*/*
@@ -13,8 +13,12 @@
 // @require      https://code.jquery.com/jquery-1.11.0.min.js
 // ==/UserScript==
 
+String.prototype.initialCase = function() {
+    return this[0].toUpperCase() + this.slice(1)
+}
+
 const $ = this.$ // Debug: Hack eslint warnings in TM editor.
-const debug = true
+const debug = false
 function expose(o) {
     if (debug) for (let i in o) unsafeWindow[i] = o[i]
 }
@@ -32,18 +36,18 @@ function Dat({ getter, setter, useWrapper, getW, setW, dataW }) {
     function dat(opt, src = dat, p) {
         const R = src === dat, r = new Proxy(src, useWrapper
             ? {
-                get: (__, k) => {
+                get: (_t, k) => {
                     if (k === "_" && R) return _
                     return _[pn(p, k)]
                 },
-                set: (__, k, v) => {
+                set: (_t, k, v) => {
                     if (k === "_" && R) Throw("[Dat] Set _.")
                     _[pn(p, k)] = v
                 }
             }
             : {
-                get: (_, k) => getter(pn(p, k), k),
-                set: (_, k, v) => setter(pn(p, k), k, v)
+                get: (_t, k) => getter(pn(p, k), k),
+                set: (_t, k, v) => setter(pn(p, k), k, v)
             }
         )
         for (let n in opt) {
@@ -98,7 +102,7 @@ const ts = Dat({
             toggle: "&q",
             mark: "&m",
             fill: "&f",
-            rset: "&r",
+            list: "&l",
             conf: "&c",
             info: "&i"
         }
@@ -113,6 +117,7 @@ const ls = Dat({
 })({})._
 const op = Dat({
     getter: (_, n) => {
+        if (n === "all") return ts.operation
         if (n === "here") n = location.origin + location.pathname
         return ts.operation[n] ?? []
     },
@@ -175,7 +180,7 @@ function scan({ hl, root } = {
     const $t = $(`${root} input[type=text],textarea`),
           $r = $(`${root} input[type=radio],label`),
           $c = $(`${root} input[type=checkbox],label`),
-          $A = [ $t, $r, $c ]
+          A$ = [ $t, $r, $c ]
 
     $t.one("change.WIMF", function() {
         const $_ = $(this), path = $_.path(), val = $_.val()
@@ -232,7 +237,7 @@ function scan({ hl, root } = {
         u()
     })
 
-    if (typeof hl === "function") for (let $i of $A) hl($i)
+    if (typeof hl === "function") for (let $i of A$) hl($i)
 }
 
 function shortcut() {
@@ -264,7 +269,7 @@ function shortcut() {
         },
         mark: UI.action.mark,
         fill: UI.action.fill,
-        rset: UI.action.rset,
+        list: UI.action.list,
         conf: UI.action.conf,
         info: UI.action.info
     }
@@ -274,7 +279,7 @@ function shortcut() {
         st(); let ck = "", sdk = false
         for (let dk of [ "alt", "ctrl", "shift", "meta" ]) {
             if (e[dk + "Key"]) {
-                ck += dk = dk[0].toUpperCase() + dk.slice(1)
+                ck += dk = dk.initialCase()
                 if (e.key === dk || e.key === "Control") {
                     sdk = true; break
                 }
@@ -308,62 +313,71 @@ const UI = {}
 UI.meta = {
     author: "ForkKILLET",
     slogan: "管理你的表单，不让他们走丢",
-    aboutCompetition: `
-<p>华东师大二附中“创意·创新·创造”大赛 <br/>
-    <i>-- 刘怀轩 东昌南校 初三2班
-</p>`,
 
-    mainButton: (name, emoji) => `
-<span class="WIMF-button" name="${name}">${emoji}</span>
-`,
+    title: t => `<b class="WIMF-title">${t}</b>`,
+    link: u => `<a href="${u}">${u}</a>`,
+    badge: t => `<span class="WIMF-badge">${t}</span>`,
+    button: (name, emoji) => `<span class="WIMF-button" name="${name}">${emoji}</span>`,
+    buttonLittle: (name, emoji) => `<span class="WIMF-button little" name="${name}">${emoji}</span>`,
     html: `
 <div class="WIMF">
     <div class="WIMF-main">
         <b class="WIMF-title">WhereIsMyForm</b>
-        #{mainButton | mark 标记 | 🔍}
-        #{mainButton | fill 填充 | 📃}
-   <!-- #{mainButton | rset 清存 | 🗑️} -->
-        #{mainButton | list 清单 | 📚}
-        #{mainButton | conf 设置 | ⚙️}
-        #{mainButton | info 关于 | ℹ️}
-        #{mainButton | quit 退出 | ❌}
+        #{button | mark 标记 | 🔍}
+        #{button | fill 填充 | 📃}
+        #{button | list 清单 | 📚}
+        #{button | conf 设置 | ⚙️}
+        #{button | info 关于 | ℹ️}
+        #{button | quit 退出 | ❌}
     </div>
     <div class="WIMF-text"></div>
     <div class="WIMF-task"></div>
 </div>
 `,
-    testURL: "https://www.wjx.cn/newsurveys.aspx",
+    aboutCompetition: `
+华东师大二附中“创意·创新·创造”大赛 <br/>
+<i>-- 刘怀轩 东昌南校 初三2班</i>
+`,
     info: `
-<b class="WIMF-title">Infomation</b> <br/>
-
-<p>#{slogan} <br/>
+#{title | Infomation} <br/>
+<p>
+    #{slogan} <br/>
     <i>-- #{author}</i>
-</p> <br/> <br/>
+    <br/> <br/>
 
-#{aboutCompetition} <br/> <br/>
+    #{aboutCompetition}
+    <br/> <br/>
 
-<p>可用的测试页面：</p>
-<a href="#{testURL}">#{testURL}</a>
+    可用的测试页面：
+    #{link | https://www.wjx.cn/newsurveys.aspx}
+</p>
 `,
     confInput: (zone, name, hint) => `
-${name.replace(/^[a-z]+_/, "").replace(/^./, c => c.toUpperCase())} ${hint}
+${name.replace(/^[a-z]+_/, "").initialCase()} ${hint}
 <input type="text" name="${zone}_${name}"/>
 `,
     confApply: (zone) => `<button data-zone="${zone}">OK</button>`,
     conf: `
-<b class="WIMF-title">Configuration</b> <br/>
-
-<p>
-    <b>Key 按键</b> <br/>
-    #{confInput | key | leader          | 引导}
-    #{confInput | key | shortcut_toggle | 开关浮窗}
-    #{confInput | key | shortcut_mark   | 标记}
-    #{confInput | key | shortcut_fill   | 填充}
-    #{confInput | key | shortcut_rset   | 清存}
-    #{confInput | key | shortcut_conf   | 设置}
-    #{confInput | key | shortcut_info   | 关于}
-    #{confApply | key}
-</p>
+#{title | Configuration} <br/>
+<b>Key 按键</b> <br/>
+#{confInput | key | leader          | 引导}
+#{confInput | key | shortcut_toggle | 开关浮窗}
+#{confInput | key | shortcut_mark   | 标记}
+#{confInput | key | shortcut_fill   | 填充}
+#{confInput | key | shortcut_list   | 清单}
+#{confInput | key | shortcut_conf   | 设置}
+#{confInput | key | shortcut_info   | 关于}
+#{confApply | key}
+`,
+    listZone: (name, hint) => `
+<b>${name.initialCase()} ${hint}</b>
+<ul data-name="${name}"></ul>
+`,
+    list: `
+#{title | List}
+#{listZone | here   | 本页}
+#{listZone | origin | 同源}
+#{listZone | else   | 其它}
 `,
     styl: `
 /* :: Animation */
@@ -397,6 +411,7 @@ ${name.replace(/^[a-z]+_/, "").replace(/^./, c => c.toUpperCase())} ${hint}
     box-sizing: content-box;
     word-wrap: normal;
     font-size: inherit;
+    line-height: 1.4;
 }
 
 .WIMF-main, .WIMF-text, .WIMF-task p {
@@ -426,9 +441,64 @@ ${name.replace(/^[a-z]+_/, "").replace(/^./, c => c.toUpperCase())} ${hint}
 .WIMF-mark {
     background-color: #ffff81;
 }
+
 .WIMF-title {
     display: block;
     text-align: center;
+}
+
+.WIMF-badge {
+    padding: 0 4px;
+    border-radius: 6px;
+    background-color: #9f9;
+    box-shadow: 0 0 4px #bbb;
+}
+
+.WIMF a {
+    overflow-wrap: anywhere;
+    color: #0aa;
+    transition: color .8s;
+}
+.WIMF a:hover {
+    color: #0af;
+}
+
+.WIMF-button {
+    display: inline-block;
+    width: 17px;
+    height: 17px;
+
+    padding: 2px 3px 3px 3px;
+    margin: 3px;
+
+    border-radius: 7px;
+    font-size: 12px;
+    text-align: center;
+    box-shadow: 0 0 3px #bbb;
+
+    background-color: #fff;
+    transition: background-color .8s;
+}
+.WIMF-button.little {
+    transform: scale(0.9);
+    margin-top: -2px;
+    margin-left: 0;
+}
+.WIMF-button:hover, .WIMF-button.active {
+    background-color: #bbb;
+}
+.WIMF-main > .WIMF-button:hover::before {
+    position: absolute;
+    right: 114px;
+    width: 75px;
+
+    content: attr(name);
+    padding: 0 3px;
+
+    font-size: 14px;
+    border-radius: 4px;
+    background-color: #fff;
+    box-shadow: 0 0 4px #aaa;
 }
 
 /* :: Cell */
@@ -452,39 +522,6 @@ ${name.replace(/^[a-z]+_/, "").replace(/^./, c => c.toUpperCase())} ${hint}
     opacity: .5;
 }
 
-.WIMF-button {
-    display: inline-block;
-    width: 17px;
-    height: 17px;
-
-    padding: 2px 3px 3px 3px;
-    margin: 3px;
-
-    border-radius: 7px;
-    font-size: 12px;
-    text-align: center;
-    box-shadow: 0 0 3px #bbb;
-
-    background-color: #fff;
-    transition: background-color .8s;
-}
-.WIMF-button:hover, .WIMF-button.active {
-    background-color: #bbb;
-}
-.WIMF-button:hover::before {
-    position: absolute;
-    right: 114px;
-    width: 75px;
-
-    content: attr(name);
-    padding: 0 3px;
-
-    font-size: 14px;
-    border-radius: 4px;
-    background-color: #fff;
-    box-shadow: 0 0 4px #aaa;
-}
-
 .WIMF-text {
     position: absolute;
     display: none;
@@ -498,9 +535,6 @@ ${name.replace(/^[a-z]+_/, "").replace(/^./, c => c.toUpperCase())} ${hint}
 }
 .WIMF-text::-webkit-scrollbar {
     display: none;
-}
-.WIMF-text a {
-    overflow-wrap: anywhere;
 }
 
 .WIMF-text input {
@@ -535,13 +569,13 @@ ${name.replace(/^[a-z]+_/, "").replace(/^./, c => c.toUpperCase())} ${hint}
 }
 `
 }
-UI.M = new Proxy(UI.meta, {
-    get: (t, n) => t[n].replace(/#{(.*?)}/g, (_, s) => {
-        const [ k, ...a ] = s.split(/ *\| */), m = t[k]
+UI.M = new Proxy(s =>
+    s.replace(/#{(.*?)}/g, (_, s) => {
+        const [ k, ...a ] = s.split(/ *\| */), m = UI.meta[k]
         if (a.length && typeof m === "function") return m(...a)
         return m
-    })
-})
+    }), { get: (t, n) => t(UI.meta[n]) }
+)
 
 UI.$btn = n => $(`.WIMF-button[name^=${n}]`)
 UI.action = {
@@ -582,7 +616,33 @@ UI.action = {
         UI.task(`已填充 ${c} 个表单项。`, `${c} form field(s) is filled.`)
     },
     list() {
+        UI.text.show("list")
+        const o = op.all, z$ = {}, $t = UI.$text()
+        for (let i of [ "here", "origin", "else" ])
+            z$[i] = $t.children(`ul[data-name="${i}"]`).html("")
+        function checkHyphen() {
+            for (let $i of Object.values(z$)) if (! $i.children().length) $i.html("-")
+        }
 
+        let $i; for (let i in o) {
+            const u = new URL(i)
+            if (u.origin === location.origin)
+                if (u.pathname === location.pathname) $i = z$.here;
+                else $i = z$.origin
+            else $i = z$.else
+            $i.append(UI.M(`
+<li>#{link | ${u}} #{badge | ${o[u].length}} #{buttonLittle | del | 🗑️}</li>
+`))
+            $i.find("li:last-child > .WIMF-button[name=del]").on("click", function() {
+                const $p = $(this).parent()
+                delete o[$p.children("a").attr("href")]
+                ts.operation = o
+                $p.remove()
+                checkHyphen()
+                UI.task("已删除一个表单。", "The form is deleted.")
+            })
+        }
+        checkHyphen()
     },
     conf() {
         UI.text.show("conf")
@@ -623,12 +683,13 @@ UI.action = {
         UI.text.hide()
     }
 }
+UI.$text = (n = UI.text.active) => $(`.WIMF-text > [data-name=${n}]`)
 UI.text = {
     hide: () => {
         UI.$btn(UI.text.active).removeClass("active")
         $(".WIMF-text").hide().children(`[data-name=${UI.text.active}]`).hide()
     },
-    show: (n) => {
+    show: n => {
         UI.text.hide()
         UI.$btn(UI.text.active = n).addClass("active")
         const $t = $(".WIMF-text").show(), $p = $t.children(`[data-name=${n}]`)
