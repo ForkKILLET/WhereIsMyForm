@@ -3,5 +3,6 @@ test/
 
 *.xlsx
 *.docx
+*.pptx
 *.sh
 

@@ -2,7 +2,7 @@
 // @name         WhereIsMyForm
 // @namespace    https://github.com/ForkFG
 // @version      0.4
-// @description  管理你的表单，不让他们走丢。适用场景：问卷，发帖，……
+// @description  管理你的表单，不让他们走丢。
 // @author       ForkKILLET
 // @match        *://*/*
 // @noframes
@@ -17,8 +17,10 @@ String.prototype.initialCase = function() {
     return this[0].toUpperCase() + this.slice(1)
 }
 
+Math.random.token = n => Math.random().toString(36).slice(- n)
+
 const $ = this.$ // Debug: Hack eslint warnings in TM editor.
-const debug = false
+const debug = true
 function expose(o) {
     if (debug) for (let i in o) unsafeWindow[i] = o[i]
 }
@@ -136,10 +138,10 @@ $.fn.extend({
             if (! e) return p
             const $e = $(e), t = e.tagName.toLowerCase()
             let pn = t
-            if (e.id) pn += "#" + e.id
-            if (e.name) pn += "[name=" + e.name + "]"
+            if (e.id) pn += `#${ e.id }`
+            if (e.name) pn += `[name=${ e.name }]`
             if (! e.id && $e.parent().children(t).length > 1) {
-                pn += ":nth-of-type(" + ($e.prevAll(t).length + 1) + ")"
+                pn += `:nth-of-type(${ $e.prevAll(t).length + 1 })`
             }
            return _path(e.parentElement, pn + (f ? "" : ">" + p), false)
         })(this[0])
@@ -177,7 +179,7 @@ function scan({ hl, root } = {
 }) {
     const o = op.here, u = () => { op.here = o }
 
-    const $t = $(`${root} input[type=text],textarea`),
+    const $t = $(`${root} input[type=text],input:not([type]),textarea`),
           $r = $(`${root} input[type=radio],label`),
           $c = $(`${root} input[type=checkbox],label`),
           A$ = [ $t, $r, $c ]
@@ -311,14 +313,15 @@ function shortcut() {
 
 const UI = {}
 UI.meta = {
-    author: "ForkKILLET",
-    slogan: "管理你的表单，不让他们走丢",
+    author: GM_info.script.author,
+    slogan: GM_info.script.description,
 
     title: t => `<b class="WIMF-title">${t}</b>`,
     link: u => `<a href="${u}">${u}</a>`,
     badge: t => `<span class="WIMF-badge">${t}</span>`,
-    button: (name, emoji) => `<span class="WIMF-button" name="${name}">${emoji}</span>`,
-    buttonLittle: (name, emoji) => `<span class="WIMF-button little" name="${name}">${emoji}</span>`,
+    button: (name, emoji) => `<button class="WIMF-button" name="${name}">${emoji}</button>`,
+    buttonLittle: (name, emoji) => `<button class="WIMF-button little" name="${name}">${emoji}</button>`,
+
     html: `
 <div class="WIMF">
     <div class="WIMF-main">
@@ -353,7 +356,7 @@ UI.meta = {
 </p>
 `,
     confInput: (zone, name, hint) => `
-${name.replace(/^[a-z]+_/, "").initialCase()} ${hint}
+${ name.replace(/^[a-z]+_/, "").initialCase() } ${hint}
 <input type="text" name="${zone}_${name}"/>
 `,
     confApply: (zone) => `<button data-zone="${zone}">OK</button>`,
@@ -370,7 +373,7 @@ ${name.replace(/^[a-z]+_/, "").initialCase()} ${hint}
 #{confApply | key}
 `,
     listZone: (name, hint) => `
-<b>${name.initialCase()} ${hint}</b>
+<b>${ name.initialCase() } ${hint}</b>
 <ul data-name="${name}"></ul>
 `,
     list: `
@@ -378,6 +381,8 @@ ${name.replace(/^[a-z]+_/, "").initialCase()} ${hint}
 #{listZone | here   | 本页}
 #{listZone | origin | 同源}
 #{listZone | else   | 其它}
+
+#{button | dela | 🗑️}
 `,
     styl: `
 /* :: Animation */
@@ -409,6 +414,9 @@ ${name.replace(/^[a-z]+_/, "").initialCase()} ${hint}
 }
 .WIMF, .WIMF * { /* Note: Disable styles from host page. */
     box-sizing: content-box;
+    border: none;
+    outline: none;
+
     word-wrap: normal;
     font-size: inherit;
     line-height: 1.4;
@@ -448,7 +456,9 @@ ${name.replace(/^[a-z]+_/, "").initialCase()} ${hint}
 }
 
 .WIMF-badge {
+    margin: 3px 0 2px;
     padding: 0 4px;
+
     border-radius: 6px;
     background-color: #9f9;
     box-shadow: 0 0 4px #bbb;
@@ -471,7 +481,10 @@ ${name.replace(/^[a-z]+_/, "").initialCase()} ${hint}
     padding: 2px 3px 3px 3px;
     margin: 3px;
 
+    outline: none;
+    border: none;
     border-radius: 7px;
+
     font-size: 12px;
     text-align: center;
     box-shadow: 0 0 3px #bbb;
@@ -481,8 +494,9 @@ ${name.replace(/^[a-z]+_/, "").initialCase()} ${hint}
 }
 .WIMF-button.little {
     transform: scale(0.9);
-    margin-top: -2px;
-    margin-left: 0;
+    margin: -1px 0;
+    padding: 0 5px;
+    border-radius: 3px;
 }
 .WIMF-button:hover, .WIMF-button.active {
     background-color: #bbb;
@@ -537,7 +551,16 @@ ${name.replace(/^[a-z]+_/, "").initialCase()} ${hint}
     display: none;
 }
 
-.WIMF-text input {
+
+
+.WIMF-task p {
+    margin-bottom: 3px;
+    background-color: #9f9;
+}
+
+/* :: Texts */
+
+[data-name=conf] input {
     width: 95px;
     margin: 3px 0;
 
@@ -547,25 +570,22 @@ ${name.replace(/^[a-z]+_/, "").initialCase()} ${hint}
     box-shadow: 0 0 3px #aaa;
 }
 
-.WIMF-text button {
+[data-name=conf] button[data-zone] {
     margin: 3px 0;
     padding: 0 5px;
 
-    border: none;
     border-radius: 3px;
-    outline: none;
-
     box-shadow: 0 0 3px #aaa;
+
     background-color: #fff;
     transition: background-color .8s;
 }
-.WIMF-text button:hover {
-    background-color: #bbb;
-}
 
-.WIMF-task p {
-    margin-bottom: 3px;
-    background-color: #9f9;
+[data-name=list] li > div {
+    display: none;
+}
+[data-name=list] li:hover > div {
+    display: inline-block;
 }
 `
 }
@@ -620,29 +640,41 @@ UI.action = {
         const o = op.all, z$ = {}, $t = UI.$text()
         for (let i of [ "here", "origin", "else" ])
             z$[i] = $t.children(`ul[data-name="${i}"]`).html("")
-        function checkHyphen() {
+        function checkEmpty() {
             for (let $i of Object.values(z$)) if (! $i.children().length) $i.html("-")
         }
 
         let $i; for (let i in o) {
-            const u = new URL(i)
+            const u = new URL(i), e = JSON.stringify(o[i]) + "\n"
             if (u.origin === location.origin)
                 if (u.pathname === location.pathname) $i = z$.here;
                 else $i = z$.origin
             else $i = z$.else
-            $i.append(UI.M(`
-<li>#{link | ${u}} #{badge | ${o[u].length}} #{buttonLittle | del | 🗑️}</li>
-`))
-            $i.find("li:last-child > .WIMF-button[name=del]").on("click", function() {
+            const $_ = $(UI.M(`
+<li>
+    #{link | ${u}} <br/> #{badge | ${o[u].length}}
+    <div>
+        #{buttonLittle | dele | 🗑️}
+        <a href="${
+            URL.createObjectURL(new Blob([ e ], { type: "application/json" }))
+        }" download="WIMF-export-${ Math.random.token(8).toUpperCase() }.json">
+            #{buttonLittle | expt | 💾}
+        </a>
+    </div>
+</li>
+`)).appendTo($i)
+            const $b = $_.children("div")
+
+            $b.children(".WIMF-button[name=del]").on("click", function() {
                 const $p = $(this).parent()
                 delete o[$p.children("a").attr("href")]
                 ts.operation = o
                 $p.remove()
-                checkHyphen()
+                checkEmpty()
                 UI.task("已删除一个表单。", "The form is deleted.")
             })
         }
-        checkHyphen()
+        checkEmpty()
     },
     conf() {
         UI.text.show("conf")
@@ -663,7 +695,7 @@ UI.action = {
                 }
             }
             map(($_, sp) => $_.val(ts[sp]))
-            $b.on("click", () => {
+            $b.one("click", () => {
                 map(($_, sp) => { ts[sp] = $_.val() })
                 if (c_b[zone]) c_b[zone]()
                 UI.task(`设置块 ${zone} 已应用。`, `Configuration zone ${zone} is applied.`)
