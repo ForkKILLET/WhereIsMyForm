@@ -19,6 +19,8 @@ String.prototype.initialCase = function() {
 
 Math.random.token = n => Math.random().toString(36).slice(- n)
 
+location.here = (location.origin + location.pathname).replace("_", "%5F")
+
 const $ = this.$ // Debug: Hack eslint warnings in TM editor.
 const debug = true
 function expose(o) {
@@ -120,13 +122,12 @@ const ls = Dat({
 const op = Dat({
     getter: (_, n) => {
         if (n === "all") return ts.operation
-        if (n === "here") n = location.origin + location.pathname
-        return ts.operation[n] ?? []
+        if (n === "here") n = location.here
+        return ts["operation_" + n] ?? []
     },
     setter: (_, n, v) => {
-        if (n === "here") n = location.origin + location.pathname
-        const o = ts.operation
-        o[n] = v; ts.operation = o
+        if (n === "here") n = location.here
+        ts["operation_" + n] = v
     }
 })({})
 
@@ -334,7 +335,7 @@ UI.meta = {
         #{button | quit 退出 | ❌}
     </div>
     <div class="WIMF-text"></div>
-    <div class="WIMF-task"></div>
+    <div class="WIMF-msg"></div>
 </div>
 `,
     aboutCompetition: `
@@ -378,14 +379,16 @@ ${ name.replace(/^[a-z]+_/, "").initialCase() } ${hint}
 `,
     list: `
 #{title | List}
+#{button | dela | 🗑️}
+#{button | impt | ⬆️}
+<input type="file" value="form" accept=".json"/>
+<br/>
 #{listZone | here   | 本页}
 #{listZone | origin | 同源}
 #{listZone | else   | 其它}
-
-#{button | dela | 🗑️}
 `,
     styl: `
-/* :: Animation */
+/* :: animation */
 
 @keyframes melting-sudden {
     0%, 70% { opacity: 1; }
@@ -400,7 +403,7 @@ ${ name.replace(/^[a-z]+_/, "").initialCase() } ${hint}
     100% { opacity: 1; }
 }
 
-/* :: Skeleton */
+/* :: root */
 
 .WIMF {
     position: fixed;
@@ -422,15 +425,18 @@ ${ name.replace(/^[a-z]+_/, "").initialCase() } ${hint}
     line-height: 1.4;
 }
 
-.WIMF-main, .WIMF-text, .WIMF-task p {
+.WIMF-main, .WIMF-text, .WIMF-msg p {
     width: 100px;
-
     padding: 0 3px 0 4.5px;
+
     border-radius: 12px;
     font-size: 12px;
     background-color: #fff;
     box-shadow: 0 0 4px #aaa;
 }
+
+/* :: main */
+
 .WIMF-main {
     position: absolute;
     top: 0;
@@ -438,13 +444,26 @@ ${ name.replace(/^[a-z]+_/, "").initialCase() } ${hint}
     height: 80px;
 }
 
-.WIMF-task {
+.WIMF-main::after { /* Note: A cover. */
     position: absolute;
+    width: 100%;
+    height: 100%;
     top: 0;
-    right: 115px;
+    left: 0;
+    pointer-events: none;
+
+    content: "";
+    border-radius: 12px;
+    background-color: black;
+
+    opacity: 0;
+    transition: opacity .8s;
+}
+.WIMF-main.dragging::after {
+    opacity: .5;
 }
 
-/* :: Modification */
+/* :: cell */
 
 .WIMF-mark {
     background-color: #ffff81;
@@ -498,10 +517,10 @@ ${ name.replace(/^[a-z]+_/, "").initialCase() } ${hint}
     padding: 0 5px;
     border-radius: 3px;
 }
-.WIMF-button:hover, .WIMF-button.active {
-    background-color: #bbb;
+.WIMF button:hover, .WIMF button.active {
+    background-color: #bbb !important;
 }
-.WIMF-main > .WIMF-button:hover::before {
+.WIMF-main > .WIMF-button:hover::before { /* Hints. */
     position: absolute;
     right: 114px;
     width: 75px;
@@ -515,26 +534,41 @@ ${ name.replace(/^[a-z]+_/, "").initialCase() } ${hint}
     box-shadow: 0 0 4px #aaa;
 }
 
-/* :: Cell */
+/* :: msg */
 
-.WIMF-main::after { /* Note: A cover. */
+.WIMF-msg {
     position: absolute;
-    width: 100%;
-    height: 100%;
     top: 0;
-    left: 0;
-    pointer-events: none;
-
-    content: "";
-    border-radius: 12px;
-    background-color: black;
-
-    opacity: 0;
-    transition: opacity .8s;
+    right: 115px;
 }
-.WIMF-main.dragging::after {
-    opacity: .5;
+
+.WIMF-msg > p {
+    margin-bottom: 3px;
 }
+.WIMF-msg > p
+
+.WIMF-msg > .succeed {
+    background-color: #9f9;
+}
+.WIMF-msg > .fail {
+    background-color: #f55;
+}
+.WIMF-msg > .confirm {
+    background-color: #0cf;
+}
+
+.WIMF-msg > .confirm > span:last-child {
+    float: right;
+}
+.WIMF-msg > .confirm > span:last-child > span {
+    color: #eee;
+}
+.WIMF-msg > .confirm > span:last-child > span:hover {
+    color: #eee;
+    text-decoration: underline;
+}
+
+/* :: text */
 
 .WIMF-text {
     position: absolute;
@@ -551,26 +585,31 @@ ${ name.replace(/^[a-z]+_/, "").initialCase() } ${hint}
     display: none;
 }
 
-
-
-.WIMF-task p {
-    margin-bottom: 3px;
-    background-color: #9f9;
+.WIMF-text > div {
+    padding-bottom: 5px;
 }
-
-/* :: Texts */
-
-[data-name=conf] input {
+.WIMF-text input:not([type]),
+.WIMF-text input[type=text], .WIMF-text input[type=file] {
     width: 95px;
+
     margin: 3px 0;
+    padding: 1px 2px;
 
     border: none;
     border-radius: 3px;
     outline: none;
+
     box-shadow: 0 0 3px #aaa;
 }
 
-[data-name=conf] button[data-zone] {
+.WIMF-text input[type=file]::file-selector-button {
+    display: none;
+}
+.WIMF-text input[type=file]::-webkit-file-upload-button {
+    display: none;
+}
+
+.WIMF-text button[data-zone] {
     margin: 3px 0;
     padding: 0 5px;
 
@@ -597,26 +636,29 @@ UI.M = new Proxy(s =>
     }), { get: (t, n) => t(UI.meta[n]) }
 )
 
-UI.$btn = n => $(`.WIMF-button[name^=${n}]`)
+UI.$btn = (n, p) => (p ? p.children : $).call(p, `.WIMF-button[name^=${n}]`)
 UI.action = {
     mark() {
         const $b = UI.$btn("mark")
         if ($b.is(".active")) {
             $(".WIMF-mark").removeClass("WIMF-mark")
-            UI.task("表单高亮已取消。", "Form highlight is canceled.")
+            UI.msg([ "表单高亮已取消。", "Form highlight is canceled." ])
         }
         else {
             scan({
                 hl: $i => $i.addClass("WIMF-mark")
             })
-            UI.task("表单已高亮。", "Forms are highlighted.")
+            UI.msg([ "表单已高亮。", "Forms are highlighted." ])
         }
         $b.toggleClass("active")
     },
     fill() {
-        let c = 0; for (let o of op.here) {
+        let c = 0, c_e = 0; for (let o of op.here) {
             const $i = $(o.path)
-            if (! $i.length) Throw("Form path not found", { path: o.path })
+            if (! $i.length) {
+                c_e++
+                continue
+            }
             switch (o.type) {
                 case "text":
                     $i.val(o.val)
@@ -629,14 +671,18 @@ UI.action = {
                     else $i[0].click()
                     break
                 default:
-                    Throw("Unknown form type.")
+                    UI.msg([ `未知表单项类型 "${o.type}"。`, `Unknown form field type "${o.type}".` ],
+                           { type: "fail" })
             }
             c++
         }
-        UI.task(`已填充 ${c} 个表单项。`, `${c} form field(s) is filled.`)
+        if (c_e) UI.msg([ `有 ${c_e} 个表单项无法定位。`, `${c_e} form field(s) is unable to be located.` ],
+                        { type: "fail" })
+        UI.msg([ `已填充 ${c} 个表单项。`, `${c} form field(s) is filled.` ])
     },
     list() {
         UI.text.show("list")
+
         const o = op.all, z$ = {}, $t = UI.$text()
         for (let i of [ "here", "origin", "else" ])
             z$[i] = $t.children(`ul[data-name="${i}"]`).html("")
@@ -645,7 +691,9 @@ UI.action = {
         }
 
         let $i; for (let i in o) {
-            const u = new URL(i), e = JSON.stringify(o[i]) + "\n"
+            const u = new URL(i), info = {
+                URL: u, op: o[i], time: + new Date()
+            }
             if (u.origin === location.origin)
                 if (u.pathname === location.pathname) $i = z$.here;
                 else $i = z$.origin
@@ -656,25 +704,43 @@ UI.action = {
     <div>
         #{buttonLittle | dele | 🗑️}
         <a href="${
-            URL.createObjectURL(new Blob([ e ], { type: "application/json" }))
-        }" download="WIMF-export-${ Math.random.token(8).toUpperCase() }.json">
-            #{buttonLittle | expt | 💾}
+            URL.createObjectURL(new Blob([ JSON.stringify(info) + "\n" ], { type: "application/json" }))
+        }" download="WIMF-form-${ Math.random.token(8).toUpperCase() }.json">
+            #{buttonLittle | expt | ⬇️}
         </a>
     </div>
 </li>
 `)).appendTo($i)
             const $b = $_.children("div")
 
-            $b.children(".WIMF-button[name=del]").on("click", function() {
-                const $p = $(this).parent()
-                delete o[$p.children("a").attr("href")]
+            UI.$btn("dele", $b).on("click", () => {
+                delete o[$_.children("a").attr("href")]
                 ts.operation = o
-                $p.remove()
+                $_.remove()
                 checkEmpty()
-                UI.task("已删除一个表单。", "The form is deleted.")
+                UI.msg([ "已删除一个表单。", "The form is deleted." ])
             })
         }
         checkEmpty()
+
+        const $b = UI.$btn("impt"), $f = $b.next("input[type=file]")
+        $b.one("click", async() => {
+            const file = $f[0].files[0]
+            if (! file) {
+                UI.msg([ "请先选择需导入的文件。", "Please choose a file to import first." ],
+                       { type: "fail" })
+                return
+            }
+            if (! file.name.endsWith(".json")) {
+                UI.msg([ "文件格式应为 JSON。", "The file format should be JSON." ],
+                       { type: "fail" })
+                return
+            }
+            const info = JSON.parse(await file.text())
+            op[info.URL] = info.op
+            UI.action.list() // Todo: Optmize this. Too expensive.
+            UI.msg([ "表单数据已导入。", "Form data is imported." ])
+        })
     },
     conf() {
         UI.text.show("conf")
@@ -698,7 +764,7 @@ UI.action = {
             $b.one("click", () => {
                 map(($_, sp) => { ts[sp] = $_.val() })
                 if (c_b[zone]) c_b[zone]()
-                UI.task(`设置块 ${zone} 已应用。`, `Configuration zone ${zone} is applied.`)
+                UI.msg([ `设置块 ${zone} 已应用。`, `Configuration zone ${zone} is applied.` ])
             })
         }
     },
@@ -730,7 +796,18 @@ UI.text = {
         UI.$btn("quit").attr("name", "back 返回")
     }
 }
-UI.task = (m) => $(`<p>${m}</p>`).prependTo($(".WIMF-task")).melt("sudden", 3, "remove")
+UI.msg = (m, { type, alive } = { type: "succeed" }) => {
+    // Todo: English, `m[1]`.
+    const $m = $(`<p class="${type}">${ m[0] }</p>`).prependTo($(".WIMF-msg"))
+    if (type === "confirm") {
+        const $c = $(`<span><span>OK</span> | <span>No</span></span>`).appendTo($m)
+        return f => $c.children().on("click", function() {
+            f($(this).html() === "OK")
+        })
+        // Note: Since it returns here, we needn't set `alive`.
+    }
+    if (! alive) $m.melt("sudden", 3, "remove")
+}
 UI.move = (t, r) => {
     if (t != null) ts.window_top = Math.max(t, 0)
     if (r != null) ts.window_right = Math.max(r, 0)
