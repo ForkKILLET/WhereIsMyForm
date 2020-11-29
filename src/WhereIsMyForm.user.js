@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         WhereIsMyForm
 // @namespace    https://github.com/ForkFG
-// @version      0.4
+// @version      0.5
 // @description  管理你的表单，不让他们走丢。
 // @author       ForkKILLET
 // @match        *://*/*
@@ -13,6 +13,22 @@
 // @require      https://code.jquery.com/jquery-1.11.0.min.js
 // ==/UserScript==
 
+// :: dev
+
+const $ = this.$ // Debug: Hack eslint warnings in TM editor.
+const debug = false
+function expose(o) {
+    if (debug) for (let i in o) unsafeWindow[i] = o[i]
+}
+function Throw(msg, detail) {
+    msg = `[WIMF] ${msg}`
+    arguments.length === 2
+        ? console.error(msg + "\n%o", detail)
+        : console.error(msg)
+}
+
+// :: ext
+
 String.prototype.initialCase = function() {
     return this[0].toUpperCase() + this.slice(1)
 }
@@ -21,18 +37,56 @@ Math.random.token = n => Math.random().toString(36).slice(- n)
 
 location.here = (location.origin + location.pathname).replace("_", "%5F")
 
-const $ = this.$ // Debug: Hack eslint warnings in TM editor.
-const debug = true
-function expose(o) {
-    if (debug) for (let i in o) unsafeWindow[i] = o[i]
+function setImmediateInterval(f, t) {
+    f()
+    return setInterval(f, t)
 }
 
-function Throw(msg, detail) {
-    msg = `[WIMF] ${msg}`
-    arguments.length === 2
-        ? console.error(msg + "\n%o", detail)
-        : console.error(msg)
-}
+$.fn.extend({
+    path() {
+        // Note: Too strict. We need a smarter path.
+        //       It doesn't work on dynamic pages sometimes.
+        return (function _path(e, p = "", f = true) {
+            if (! e) return p
+            const $e = $(e), t = e.tagName.toLowerCase()
+            let pn = t
+            if (e.id) pn += `#${ e.id }`
+            if (e.name) pn += `[name=${ e.name }]`
+            if (! e.id && $e.parent().children(t).length > 1) {
+                pn += `:nth-of-type(${ $e.prevAll(t).length + 1 })`
+            }
+           return _path(e.parentElement, pn + (f ? "" : ">" + p), false)
+        })(this[0])
+    },
+    one(event, func) {
+        return this.off(event).on(event, func)
+    },
+    forWhat(notCheck) {
+        if (! notCheck && ! this.is("label")) return null
+        let for_ = this.attr("for")
+        if (for_) return $(`#${for_}`)
+        for (let i of [ "prev", "next", "children" ]) {
+            let $i = this[i]("input[type=radio], input[type=checkbox]")
+            if ($i.length) return $i
+        }
+        return null
+    },
+    melt(type, time, a, b) {
+        const v = this.css("display") === "none"
+        if (type === "fadeio") type = v ? "fadein" : "fadeout"
+        if (b == null) b = type === "fadein" ? "show" : ""
+        if (a == null) a = type === "fadein" ? "" : "hide"
+        this[b]()
+        this.css("animation", `melting-${type} ${time}s`)
+        time *= 1000
+        setTimeout(() => this[a](), time > 100 ? time - 100 : time * 0.9)
+        // Note: A bit shorter than the animation duration for avoid "flash back".
+        return v
+    },
+    ""() {}
+})
+
+// :: dat
 
 // Note: `dat.xxx.yyy = zzz` doesn't work. Now have to use `dat._.xxx_yyy = zzz`.
 function Dat({ getter, setter, useWrapper, getW, setW, dataW }) {
@@ -131,116 +185,77 @@ const op = Dat({
     }
 })({})
 
-$.fn.extend({
-    path() {
-        // Note: Too strict. We need a smarter path.
-        //       It doesn't work on dynamic pages sometimes.
-        return (function _path(e, p = "", f = true) {
-            if (! e) return p
-            const $e = $(e), t = e.tagName.toLowerCase()
-            let pn = t
-            if (e.id) pn += `#${ e.id }`
-            if (e.name) pn += `[name=${ e.name }]`
-            if (! e.id && $e.parent().children(t).length > 1) {
-                pn += `:nth-of-type(${ $e.prevAll(t).length + 1 })`
-            }
-           return _path(e.parentElement, pn + (f ? "" : ">" + p), false)
-        })(this[0])
-    },
-    one(event, func) {
-        return this.off(event).on(event, func)
-    },
-    forWhat() {
-        if (! this.is("label")) return null
-        let for_ = this.attr("for")
-        if (for_) return $(`#${for_}`)
-        for (let i of [ "prev", "next", "children" ]) {
-            let $i = this[i]("input[type=checkbox]")
-            if ($i.length) return $i
-        }
-        return null
-    },
-    melt(type, time, a, b) {
-        const v = this.css("display") === "none"
-        if (type === "fadeio") type = v ? "fadein" : "fadeout"
-        if (b == null) b = type === "fadein" ? "show" : ""
-        if (a == null) a = type === "fadein" ? "" : "hide"
-        this[b]()
-        this.css("animation", `melting-${type} ${time}s`)
-        time *= 1000
-        setTimeout(() => this[a](), time > 100 ? time - 100 : time * 0.9)
-        // Note: A bit shorter than the animation duration for avoid "flash back".
-        return v
-    },
-    ""() {}
-})
+// :: fun
 
 function scan({ hl, root } = {
     root: "body"
 }) {
-    const o = op.here, u = () => { op.here = o }
+    const o = op.here
 
-    const $t = $(`${root} input[type=text],input:not([type]),textarea`),
-          $r = $(`${root} input[type=radio],label`),
-          $c = $(`${root} input[type=checkbox],label`),
-          A$ = [ $t, $r, $c ]
+    const $r = $(root), rule = [
+        { type: "text", evt: "change", sel: `input[type=text], input:not([type]), textarea` },
+        { type: "radio", evt: "click", sel: `input[type=radio]` },
+        { type: "checkbox", evt: "click", sel: `input[type=checkbox]` }
+    ], A$ = []
 
-    $t.one("change.WIMF", function() {
-        const $_ = $(this), path = $_.path(), val = $_.val()
-        let f = true; for (let i in o) {
-            if (o[i].type === "text" && o[i].path === path) {
-                o[i].val = val
-                f = false; break
+    function work(type) {
+        return function (_, { p, l } = {}) {
+            const $_ = $(this), path = p || $_.path(),
+                  d = { path, label: l, type }
+            let f = true
+
+            switch (type) {
+                case "text":
+                    const val = $_.val()
+                    for (let i in o) {
+                        if (o[i].type === type && o[i].path === path) {
+                            o[i].val = val
+                            f = false; break
+                        }
+                    }
+                    break
+                case "radio":
+                    for (let i in o) {
+                        if (o[i].type === type) {
+                            if (o[i].path === path){
+                                f = false; break
+                            }
+                            // Note: Replace the old choice.
+                            if ($(o[i].path).attr("name") === $_.attr("name")) {
+                                o[i].path = path
+                                f = false; break
+                            }
+                        }
+                    }
+                    break
+                case "checkbox":
+                    for (let i in o) {
+                        if (o[i].type === type && o[i].path === path){
+                            f = false; break
+                        }
+                    }
+                    break
             }
-        }
-        if (f) o.push({ path, val, type: "text" })
-        u()
-    })
-    $r.one("click.WIMF", function() {
-        let $_ = $(this)
-        let path = $_.path(), label
-        if ($_.is("label")) {
-            label = path
-            $_ = $_.forWhat()
-            path = $_.path()
-        }
-        if (! $_.is("[type=radio]")) return
 
-        let f = true; for (let i in o) {
-            if (o[i].type === "radio") {
-                if (o[i].path === path){
-                    f = false; break
-                }
-                // Note: Replace the old choice.
-                if ($(o[i].path).attr("name") === $_.attr("name")) {
-                    o[i].path = path
-                    f = false; break
-                }
-            }
+            if (f) o.push(d)
+            op.here = o
         }
-        if (f) o.push({ path, label, type: "radio" })
-        u()
-    })
-    $c.one("click.WIMF", function() {
-        let $_ = $(this)
-        let path = $_.path(), label
-        if ($_.is("label")) {
-            label = path
-            $_ = $_.forWhat()
-            path = $_.path()
-        }
-        if (! $_.is("[type=checkbox]")) return
+    }
 
-        let f = true; for (let i in o) {
-            if (o[i].type === "checkbox" && o[i].path === path){
-                f = false; break
-            }
-        }
-        if (f) o.push({ path, label, type: "checkbox" })
-        u()
+    for (let [ i, r ] of Object.entries(rule))
+        (A$[i] = $r.find(r.sel)).one(`${ r.evt }.WIMF work.WIMF`, work(r.type))
+
+    $r.find("label").one("click.WIMF", function() {
+        const $_ = $(this), l = $_.path(),
+              $o = $_.forWhat(true)
+        if (! $o.is("input, textarea")) return
+        const p = $o.path()
+        $o.trigger("work.WIMF", [ { p, l } ])
     })
 
-    if (typeof hl === "function") for (let $i of A$) hl($i)
+    if (typeof hl === "function") A$.forEach($i => hl($i))
+
+    return [ A$, A$.reduce((a, v) => a + v.length, 0) ]
 }
 
 function shortcut() {
@@ -353,7 +368,7 @@ UI.meta = {
     <br/> <br/>
 
     可用的测试页面：
-    #{link | https://www.wjx.cn/newsurveys.aspx}
+    问卷星：#{link | https://www.wjx.cn/newsurveys.aspx}
 </p>
 `,
     confInput: (zone, name, hint) => `
@@ -545,7 +560,6 @@ ${ name.replace(/^[a-z]+_/, "").initialCase() } ${hint}
 .WIMF-msg > p {
     margin-bottom: 3px;
 }
-.WIMF-msg > p
 
 .WIMF-msg > .succeed {
     background-color: #9f9;
@@ -716,6 +730,7 @@ UI.action = {
             UI.$btn("dele", $b).on("click", () => {
                 delete o[$_.children("a").attr("href")]
                 ts.operation = o
+                scan() // Note: Update `o` in `work` closure.
                 $_.remove()
                 checkEmpty()
                 UI.msg([ "已删除一个表单。", "The form is deleted." ])
@@ -723,8 +738,8 @@ UI.action = {
         }
         checkEmpty()
 
-        const $b = UI.$btn("impt"), $f = $b.next("input[type=file]")
-        $b.one("click", async() => {
+        const $f = $t.children("input[type=file]")
+        UI.$btn("impt", $t).one("click", async() => {
             const file = $f[0].files[0]
             if (! file) {
                 UI.msg([ "请先选择需导入的文件。", "Please choose a file to import first." ],
@@ -739,7 +754,16 @@ UI.action = {
             const info = JSON.parse(await file.text())
             op[info.URL] = info.op
             UI.action.list() // Todo: Optmize this. Too expensive.
-            UI.msg([ "表单数据已导入。", "Form data is imported." ])
+            UI.msg([ "所上传的表单数据已导入。", "The form data you uploaded is imported." ])
+        })
+        UI.$btn("dela", $t).one("click", () => {
+            UI.msg([ "确定要删除所有表单吗？", "Are you sure to delete all forms?" ],
+                   { type: "confirm" })(y => {
+                if (! y) return
+                ts.operation = {}
+                UI.action.list()
+                UI.msg([ "表单数据已全部删除。", "All form data is deleted." ])
+            })
         })
     },
     conf() {
@@ -800,9 +824,10 @@ UI.msg = (m, { type, alive } = { type: "succeed" }) => {
     // Todo: English, `m[1]`.
     const $m = $(`<p class="${type}">${ m[0] }</p>`).prependTo($(".WIMF-msg"))
     if (type === "confirm") {
-        const $c = $(`<span><span>OK</span> | <span>No</span></span>`).appendTo($m)
+        const $c = $(`<span><span>Yes</span> | <span>No</span></span>`).appendTo($m)
         return f => $c.children().on("click", function() {
-            f($(this).html() === "OK")
+            f($(this).html() === "Yes")
+            $m.melt("fadeout", 1, "remove")
         })
         // Note: Since it returns here, we needn't set `alive`.
     }
@@ -852,8 +877,16 @@ UI.init = () => {
 
 $(function init() {
     UI.init()
-    scan()
+
     shortcut()
+
+    let a; const t_s = setImmediateInterval(() => {
+        let [ ,b ] = scan()
+        if (b > 0 && b === a) clearInterval(t_s)
+        a = b
+    }, 1000)
+    setTimeout(() => clearInterval(t_s), 10 * 1000)
+    // Note: Some pages' `onload` goes before really loading (by frames).
 })
 
 expose({ ts, op, UI })
