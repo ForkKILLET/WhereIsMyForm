@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         WhereIsMyForm
 // @namespace    https://github.com/ForkFG
-// @version      0.5
+// @version      0.5.1
 // @description  管理你的表单，不让他们走丢。
 // @author       ForkKILLET
 // @match        *://*/*
@@ -355,16 +355,13 @@ UI.meta = {
 `,
     aboutCompetition: `
 华东师大二附中“创意·创新·创造”大赛 <br/>
-<i>-- 刘怀轩 东昌南校 初三2班</i>
+<i>--【数据删除】</i>
 `,
     info: `
 #{title | Infomation} <br/>
 <p>
     #{slogan} <br/>
     <i>-- #{author}</i>
-    <br/> <br/>
-
-    #{aboutCompetition}
     <br/> <br/>
 
     可用的测试页面：
@@ -481,7 +478,7 @@ ${ name.replace(/^[a-z]+_/, "").initialCase() } ${hint}
 /* :: cell */
 
 .WIMF-mark {
-    background-color: #ffff81;
+    background-color: #ffff81 !important;
 }
 
 .WIMF-title {
@@ -660,6 +657,7 @@ UI.action = {
         }
         else {
             scan({
+                root: "body",
                 hl: $i => $i.addClass("WIMF-mark")
             })
             UI.msg([ "表单已高亮。", "Forms are highlighted." ])
